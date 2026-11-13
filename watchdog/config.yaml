@@ -1,0 +1,100 @@
+# NMG Watchdog - every scheduled automation, what "it ran" means, and how to recover it.
+# Times are AWST (Australia/Perth). The watchdog runs once a day at 07:30 AWST (cron-job.org)
+# and sends one digest. No email addresses live here: this repo is public.
+#
+# check kinds
+#   freshness      last SUCCESSFUL run of the workflow is younger than max_age_hours
+#   daily_marker   the artifact <marker>-<YYYY-MM-DD> exists for today (the job's own "sent" proof)
+#   daily_success  a run of the workflow concluded success today (ERT invariant: success == sent)
+#   monthly_file   once due on day 1, `path` in the repo holds months.<last month>
+#
+# recover: dispatch the workflow (workflow_dispatch on `ref`). Every send job has its own
+#   once-per-day/month guard, so a dispatch never sends twice. A job past its `cutoff` is not
+#   dispatched (it would refuse anyway) - the digest says what to do instead.
+# local_command: run on THIS PC when Actions cannot start the job and the watchdog was started
+#   with --allow-local. Left empty where a local run would bypass the job's guard and could
+#   double-send once Actions recovers - those get manual steps in the digest instead.
+
+timezone: Australia/Perth
+owner: neil-noble
+ref: master
+
+automations:
+  - id: ert_dashboard
+    name: ERT dashboard
+    repo: nmg-ert-dashboard
+    workflow: dashboard.yml
+    schedule: "04:05, 06:40, 07:15, 08:00, 11:00, 14:00, 17:00, 20:00 AWST (GitHub cron)"
+    check: freshness
+    max_age_hours: 9          # longest scheduled gap is 20:00 -> 04:05 (8h05)
+    recover: dispatch
+    local_command: null
+    manual: "gh workflow run dashboard.yml --ref master --repo neil-noble/nmg-ert-dashboard"
+
+  - id: ohs_dashboard
+    name: OHS dashboard
+    repo: nmg-ohs-dashboard
+    workflow: dashboard.yml
+    schedule: "cron-job.org every 5 min 05:00-16:55 + hourly overnight; GitHub cron :17 every 3h"
+    check: freshness
+    max_age_hours: 3
+    recover: dispatch
+    local_command: null
+    manual: "gh workflow run dashboard.yml --ref master --repo neil-noble/nmg-ohs-dashboard"
+
+  - id: ert_roster_email
+    name: ERT roster email (05:00)
+    repo: nmg-ert-dashboard
+    workflow: daily_roster.yml
+    schedule: "05:00 AWST daily (cron-job.org 04:56 + crons 05:20, 06:10 + dashboard watchdog to 08:00)"
+    check: daily_success
+    due: "05:00"
+    grace_minutes: 60
+    hold_variable: ROSTER_EMAIL_HOLD   # repo variable; true = deliberately held, not a failure
+    recover: dispatch
+    email_subject: "Crown Prince Operation ERT Roster"
+    local_command: null
+    manual: "gh workflow run daily_roster.yml --ref master --repo neil-noble/nmg-ert-dashboard"
+
+  - id: evac_email
+    name: Evacuation list email (05:00)
+    repo: nmg-evac-list
+    workflow: evac_send.yml
+    schedule: "05:00 AWST daily (cron-job.org 04:45, 04:55, 05:15 + crons to 07:00); cutoff 09:00"
+    check: daily_marker
+    marker: evac-sent
+    due: "05:00"
+    grace_minutes: 30
+    cutoff: "09:00"
+    recover: dispatch
+    email_subject: "NMG Crown Prince Operation Evacuation List"
+    local_command: null
+    manual: "gh workflow run evac_send.yml --ref master --repo neil-noble/nmg-evac-list  (after 09:00 add: -f force=true)"
+
+  - id: mobs_email
+    name: Mobilisation compliance email (05:00)
+    repo: nmg-mobs
+    workflow: mobs.yml
+    schedule: "hourly at :35 (GitHub cron) + cron-job.org :05 hourly; email owed from 05:00"
+    check: daily_marker
+    marker: mobs-sent
+    due: "05:00"
+    grace_minutes: 90
+    recover: dispatch
+    email_subject: "Mobilisation compliance"
+    local_command: null
+    manual: "gh workflow run mobs.yml --ref master --repo neil-noble/nmg-mobs"
+
+  - id: eom_report
+    name: Monthly HSEC (EOM) report
+    repo: nmg-eom
+    workflow: eom_send.yml
+    schedule: "1st of the month 07:00 AWST (cron-job.org 06:45 + crons 08:00, 10:00, 12:00)"
+    check: monthly_file
+    path: data/history.yaml
+    due: "07:00"
+    grace_minutes: 20
+    recover: dispatch
+    email_subject: "NMG CPO EOM HSEC statistics"
+    local_command: null
+    manual: "gh workflow run eom_send.yml --ref master --repo neil-noble/nmg-eom"

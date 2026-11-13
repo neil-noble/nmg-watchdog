@@ -1,0 +1,39 @@
+project: NMG Watchdog
+phase: build
+status: built + tested locally; deploy pending secrets
+updated: 2026-11-13
+
+purpose: one daily check (07:30 AWST) over every scheduled NMG automation, re-trigger what is overdue,
+  confirm email DELIVERY with Brevo, and email Neil one green/amber/red digest.
+
+repo: https://github.com/neil-noble/nmg-watchdog   # PUBLIC on purpose - free minutes, not hit by private billing blocks
+files:
+  config: watchdog/config.yaml          # every automation, schedule, check kind, recovery, manual step
+  code: watchdog.py
+  tests: tests/test_watchdog.py         # missed cron, Actions outage, billing block, Brevo bounce, cutoff, holds
+  workflow: .github/workflows/watchdog.yml   # workflow_dispatch only
+
+watched:
+  ert_dashboard: nmg-ert-dashboard dashboard.yml - freshness <= 9 h
+  ohs_dashboard: nmg-ohs-dashboard dashboard.yml - freshness <= 3 h
+  ert_roster_email: nmg-ert-dashboard daily_roster.yml - a success run today (hold var ROSTER_EMAIL_HOLD = amber)
+  evac_email: nmg-evac-list evac_send.yml - artifact evac-sent-<day>; 09:00 cutoff -> no re-trigger, manual force
+  mobs_email: nmg-mobs mobs.yml - artifact mobs-sent-<day>
+  eom_report: nmg-eom eom_send.yml - data/history.yaml months.<last month> once due 07:00 on the 1st
+
+decisions:
+  - (Claude's call) "5am daily email" read as ALL three 05:00 emails (ERT roster, evac list, mobs compliance)
+  - (Claude's call) runs on GitHub Actions in a PUBLIC repo, started by cron-job.org; when Actions
+    itself is down the dispatch fails and cron-job.org's failure email is the alarm
+  - (Claude's call) local fallback only runs with --allow-local (i.e. on the PC) and only for jobs with
+    a local_command in config - none set: a local send skips the Actions-artifact guards and would
+    double-send when Actions recovers. Digest gives the exact manual command instead.
+  - re-triggers rely on each job's own once-per-day/month guard; never uses force
+  - Brevo: delivered vs bounced/blocked/deferred per recipient by subject prefix; no API key -> amber
+    "accepted only - delivery not confirmed", never claims delivered
+
+needs_neil:
+  - WATCHDOG_TOKEN: fine-grained PAT, repos nmg-ert-dashboard, nmg-ohs-dashboard, nmg-evac-list, nmg-eom,
+    nmg-mobs; Actions read+write, Contents read, Variables read, Metadata read
+  - BREVO_API_KEY: Brevo -> SMTP & API -> API keys (events + digest send)
+  - DIGEST_TO secret

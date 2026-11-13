@@ -1,0 +1,40 @@
+name: NMG Watchdog
+
+# Started by cron-job.org at 07:30 AWST daily (workflow_dispatch) - not by a GitHub cron, whose
+# delivery is best-effort. If GitHub refuses the dispatch, cron-job.org records the failure and
+# emails Neil. This repo is PUBLIC so a billing block on the private repos never stops it, and
+# so its logs print statuses and counts only - addresses go in the digest email alone.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Check only - no re-triggers, no email'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --quiet pyyaml==6.0.2 pytest
+      - run: python -m pytest -q
+      - name: Watch, recover, send the digest
+        env:
+          WATCHDOG_TOKEN: ${{ secrets.WATCHDOG_TOKEN }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_USERNAME: ${{ secrets.BREVO_USERNAME }}
+          BREVO_PASSWORD: ${{ secrets.BREVO_PASSWORD }}
+          DIGEST_TO: ${{ secrets.DIGEST_TO }}
+        run: python watchdog.py --wait-minutes 10 ${{ inputs.dry_run && '--dry-run' || '' }}
