@@ -61,6 +61,10 @@ class BillingBlocked(Exception):
     """GitHub refused to start a job because of a billing / spending-limit problem."""
 
 
+class TokenCannotSee(Exception):
+    """GitHub answered 404 for a repo the watchdog must read: the token lacks access to it."""
+
+
 # ── clients (real ones; tests pass fakes with the same methods) ────────────────────────────
 
 def _http(method, url, headers=None, body=None, timeout=30):
@@ -99,7 +103,9 @@ class GitHub:
     def runs(self, repo, workflow, per_page=30):
         # Unfiltered on purpose: GitHub's ?status= filter has returned stale indexes (ERT 2026-09-28).
         got = self._call("GET", f"/repos/{self.owner}/{repo}/actions/workflows/{workflow}/runs?per_page={per_page}")
-        return (got or {}).get("workflow_runs", [])
+        if got is None:     # 404: the token cannot see the repo/workflow - not "never ran"
+            raise TokenCannotSee(f"WATCHDOG_TOKEN cannot see {repo} ({workflow}) - add the repo to the token")
+        return got.get("workflow_runs", [])
 
     def artifact_exists(self, repo, name):
         got = self._call("GET", f"/repos/{self.owner}/{repo}/actions/artifacts?name={urllib.parse.quote(name)}&per_page=5")
@@ -368,6 +374,10 @@ def watch(job, c, cfg, dry_run=False, allow_local=False, wait_minutes=12):
         done, detail = check_done(job, c.github, now, tz)
         res.detail = detail
         probs = run_problems(job, c.github, now, tz)
+    except TokenCannotSee as err:
+        res.worsen(RED)
+        res.detail = f"cannot check: {err}"
+        return res
     except BillingBlocked as err:
         res.worsen(RED, "GitHub billing block: Actions refuses to start jobs - fix Billing & plans")
         res.detail = "cannot check: billing blocked"

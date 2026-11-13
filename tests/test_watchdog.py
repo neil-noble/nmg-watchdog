@@ -347,3 +347,14 @@ def test_missing_token_stops_with_a_clear_message(monkeypatch, capsys):
     monkeypatch.delenv("WATCHDOG_TOKEN", raising=False)
     assert W.main(["--dry-run"]) == 1
     assert "WATCHDOG_TOKEN is not set" in capsys.readouterr().out
+
+
+def test_a_repo_the_token_cannot_see_is_named_and_never_retriggered():
+    clock = Clock(perth(2026, 11, 13, 8, 0))
+    gh = FakeGitHub(clock)
+
+    def hidden(repo, wf, per_page=30):
+        raise W.TokenCannotSee(f"WATCHDOG_TOKEN cannot see {repo} ({wf}) - add the repo to the token")
+    gh.runs = hidden
+    res = W.watch(job("ert_dashboard"), clients(clock, gh), CFG)
+    assert res.status == W.RED and "cannot see nmg-ert-dashboard" in res.detail and gh.dispatched == []
