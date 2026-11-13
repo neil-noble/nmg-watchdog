@@ -1,6 +1,6 @@
 project: NMG Watchdog
-phase: build
-status: repo live (public), 20 tests pass, real dry run OK, test digest sent from PC 2026-11-13 (accepted by Brevo); waiting on WATCHDOG_TOKEN + BREVO_API_KEY, then the cron-job.org trigger
+phase: operating
+status: LIVE 2026-11-13 - cron-job.org job 8854002 07:30 AWST daily (verified: schedule read back, stored header == token file, replay 204, run success)
 updated: 2026-11-13
 
 purpose: one daily check (07:30 AWST) over every scheduled NMG automation, re-trigger what is overdue,
@@ -32,10 +32,13 @@ decisions:
   - Brevo: delivered vs bounced/blocked/deferred per recipient by subject prefix; no API key -> amber
     "accepted only - delivery not confirmed", never claims delivered
 
-secrets_set: [DIGEST_TO, BREVO_USERNAME, BREVO_PASSWORD]   # SMTP login copied from NMG ERT config.ini after a login test
-needs_neil:
-  - WATCHDOG_TOKEN: fine-grained PAT, repos nmg-ert-dashboard, nmg-ohs-dashboard, nmg-evac-list, nmg-eom,
-    nmg-mobs, nmg-watchdog; Actions read+write, Contents read, Variables read, Metadata read
-    (same PAT also used by the cron-job.org job to dispatch nmg-watchdog)
-  - BREVO_API_KEY: Brevo -> SMTP & API -> API keys (events + digest send)
-  - then Claude: set WATCHDOG_TOKEN, create cron-job.org job (07:30 AWST, POST workflow_dispatch, via REST API not the web form), dispatch once and verify
+secrets_set: [DIGEST_TO, BREVO_USERNAME, BREVO_PASSWORD, WATCHDOG_TOKEN, BREVO_API_KEY]   # SMTP login copied from NMG ERT config.ini after a login test
+trigger:
+  service: cron-job.org
+  job: 8854002   # 'NMG Watchdog 07:30 AWST', POST workflow_dispatch, notify on failure
+  token_file: reference/watchdog_pat.txt   # gitignored; same fine-grained PAT as secret WATCHDOG_TOKEN - regenerate = update BOTH + the cron job header
+  cron_api_key: C:\claude\PeopleTray DASeference\Cronjob_api_key.txt
+first_findings_2026_11_13:
+  - ERT roster email: delivered 9/15, 1 bounced, 5 pending at ~09:00 (addresses in Neil's digest)
+  - evac email: delivered 6/7, 1 pending
+  - mobs 3/3, EOM Oct 3/3 delivered
