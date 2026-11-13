@@ -35,6 +35,7 @@ decisions:
 secrets_set: [DIGEST_TO, BREVO_USERNAME, BREVO_PASSWORD]   # SMTP login copied from NMG ERT config.ini after a login test
 needs_neil:
   - WATCHDOG_TOKEN: fine-grained PAT, repos nmg-ert-dashboard, nmg-ohs-dashboard, nmg-evac-list, nmg-eom,
-    nmg-mobs; Actions read+write, Contents read, Variables read, Metadata read
+    nmg-mobs, nmg-watchdog; Actions read+write, Contents read, Variables read, Metadata read
+    (same PAT also used by the cron-job.org job to dispatch nmg-watchdog)
   - BREVO_API_KEY: Brevo -> SMTP & API -> API keys (events + digest send)
   - then Claude: set WATCHDOG_TOKEN, create cron-job.org job (07:30 AWST, POST workflow_dispatch, via REST API not the web form), dispatch once and verify
