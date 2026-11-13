@@ -1,6 +1,6 @@
 project: NMG Watchdog
 phase: operating
-status: LIVE 2026-11-13 - cron-job.org job 8854002 07:30 AWST daily (verified: schedule read back, stored header == token file, replay 204, run success)
+status: 'LIVE 2026-11-13 - cron-job.org job 8854002 07:30 AWST daily (verified - schedule read back, stored header == token file, replay 204, run success)'
 updated: 2026-11-13
 
 purpose: one daily check (07:30 AWST) over every scheduled NMG automation, re-trigger what is overdue,
@@ -26,10 +26,10 @@ decisions:
   - (Claude's call) runs on GitHub Actions in a PUBLIC repo, started by cron-job.org; when Actions
     itself is down the dispatch fails and cron-job.org's failure email is the alarm
   - (Claude's call) local fallback only runs with --allow-local (i.e. on the PC) and only for jobs with
-    a local_command in config - none set: a local send skips the Actions-artifact guards and would
+    a local_command in config - none set, because a local send skips the Actions-artifact guards and would
     double-send when Actions recovers. Digest gives the exact manual command instead.
   - re-triggers rely on each job's own once-per-day/month guard; never uses force
-  - Brevo: delivered vs bounced/blocked/deferred per recipient by subject prefix; no API key -> amber
+  - Brevo - delivered vs bounced/blocked/deferred per recipient by subject prefix; no API key -> amber
     "accepted only - delivery not confirmed", never claims delivered
 
 secrets_set: [DIGEST_TO, BREVO_USERNAME, BREVO_PASSWORD, WATCHDOG_TOKEN, BREVO_API_KEY]   # SMTP login copied from NMG ERT config.ini after a login test
@@ -37,7 +37,7 @@ trigger:
   service: cron-job.org
   job: 8854002   # 'NMG Watchdog 07:30 AWST', POST workflow_dispatch, notify on failure
   token_file: reference/watchdog_pat.txt   # gitignored; same fine-grained PAT as secret WATCHDOG_TOKEN - regenerate = update BOTH + the cron job header
-  cron_api_key: C:\claude\PeopleTray DASeference\Cronjob_api_key.txt
+  cron_api_key: 'C:\claude\PeopleTray DAS\reference\Cronjob_api_key.txt'
 first_findings_2026_11_13:
   - ERT roster email: delivered 9/15, 1 bounced, 5 pending at ~09:00 (addresses in Neil's digest)
   - evac email: delivered 6/7, 1 pending
