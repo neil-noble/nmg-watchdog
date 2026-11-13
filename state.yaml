@@ -1,6 +1,6 @@
 project: NMG Watchdog
 phase: build
-status: built + tested locally; deploy pending secrets
+status: repo live (public), 20 tests pass, real dry run OK, test digest sent from PC 2026-11-13 (accepted by Brevo); waiting on WATCHDOG_TOKEN + BREVO_API_KEY, then the cron-job.org trigger
 updated: 2026-11-13
 
 purpose: one daily check (07:30 AWST) over every scheduled NMG automation, re-trigger what is overdue,
@@ -32,8 +32,9 @@ decisions:
   - Brevo: delivered vs bounced/blocked/deferred per recipient by subject prefix; no API key -> amber
     "accepted only - delivery not confirmed", never claims delivered
 
+secrets_set: [DIGEST_TO, BREVO_USERNAME, BREVO_PASSWORD]   # SMTP login copied from NMG ERT config.ini after a login test
 needs_neil:
   - WATCHDOG_TOKEN: fine-grained PAT, repos nmg-ert-dashboard, nmg-ohs-dashboard, nmg-evac-list, nmg-eom,
     nmg-mobs; Actions read+write, Contents read, Variables read, Metadata read
   - BREVO_API_KEY: Brevo -> SMTP & API -> API keys (events + digest send)
-  - DIGEST_TO secret
+  - then Claude: set WATCHDOG_TOKEN, create cron-job.org job (07:30 AWST, POST workflow_dispatch, via REST API not the web form), dispatch once and verify

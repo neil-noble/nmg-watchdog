@@ -330,3 +330,20 @@ def test_config_lists_every_automation_with_a_schedule_and_manual_step():
     assert ids == {"ert_dashboard", "ohs_dashboard", "ert_roster_email", "evac_email", "mobs_email", "eom_report"}
     for j in CFG["automations"]:
         assert j["schedule"] and j["manual"].startswith("gh workflow run") and j["check"]
+
+
+def test_a_refused_dispatch_is_never_reported_as_retriggered():
+    clock = Clock(perth(2026, 11, 13, 7, 30))
+    gh = FakeGitHub(clock)
+
+    def refuse(repo, wf, ref):
+        raise RuntimeError("dispatch refused (404): check WATCHDOG_TOKEN access to nmg-mobs")
+    gh.dispatch = refuse
+    res = W.watch(job("mobs_email"), clients(clock, gh, FakeBrevo([])), CFG)
+    assert res.status == W.RED and "refused" in res.action and "re-triggered (" not in res.action
+
+
+def test_missing_token_stops_with_a_clear_message(monkeypatch, capsys):
+    monkeypatch.delenv("WATCHDOG_TOKEN", raising=False)
+    assert W.main(["--dry-run"]) == 1
+    assert "WATCHDOG_TOKEN is not set" in capsys.readouterr().out

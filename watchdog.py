@@ -128,7 +128,19 @@ class GitHub:
         return out
 
     def dispatch(self, repo, workflow, ref):
-        self._call("POST", f"/repos/{self.owner}/{repo}/actions/workflows/{workflow}/dispatches", {"ref": ref})
+        try:
+            _http("POST", f"{GITHUB_API}/repos/{self.owner}/{repo}/actions/workflows/{workflow}/dispatches",
+                  self.headers, {"ref": ref})
+        except urllib.error.HTTPError as err:
+            text = err.read().decode("utf-8", "replace")
+            if err.code >= 500:
+                raise ActionsUnavailable(f"GitHub {err.code} on dispatch") from err
+            if BILLING_WORDS.search(text):
+                raise BillingBlocked(text[:200]) from err
+            # 404/403 here means the token cannot see or run the workflow - never "re-triggered".
+            raise RuntimeError(f"dispatch refused ({err.code}): check WATCHDOG_TOKEN access to {repo}") from err
+        except (urllib.error.URLError, TimeoutError) as err:
+            raise ActionsUnavailable(f"GitHub unreachable: {err}") from err
 
 
 class GitHubStatus:
@@ -409,6 +421,10 @@ def recover(job, res, c, cfg, allow_local, wait_minutes, tz):
     try:
         c.github.dispatch(job["repo"], job["workflow"], cfg.get("ref", "master"))
         res.action = "re-triggered (workflow_dispatch)"
+    except RuntimeError as err:                       # token cannot run it: say so, never "re-triggered"
+        res.worsen(RED)
+        res.action = f"re-trigger refused: {err}. Manual: {job['manual']}"
+        return False
     except (ActionsUnavailable, BillingBlocked) as err:
         why = "billing blocked" if isinstance(err, BillingBlocked) else "Actions unavailable"
         cmd = job.get("local_command")
@@ -499,6 +515,16 @@ def main(argv=None):
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
     env = os.environ
+    if not env.get("WATCHDOG_TOKEN"):
+        # Without it the private repos read as "not found" and every check would be wrong.
+        msg = "WATCHDOG_TOKEN is not set - the watchdog cannot see the private repos, so nothing was checked."
+        print(msg)
+        if not (args.dry_run or args.no_email) and env.get("DIGEST_TO"):
+            Mailer(env).send(env["DIGEST_TO"], env.get("DIGEST_FROM", DEFAULT_FROM),
+                             "NMG watchdog - NOT RUNNING: WATCHDOG_TOKEN missing",
+                             f"<p style='color:#d32f2f'><b>{msg}</b></p><p>Add the secret on "
+                             "github.com/neil-noble/nmg-watchdog - Settings - Secrets - Actions.</p>", msg)
+        return 1
     c = Clients(github=GitHub(env.get("WATCHDOG_TOKEN"), cfg["owner"]), status=GitHubStatus(),
                 brevo=Brevo(env["BREVO_API_KEY"]) if env.get("BREVO_API_KEY") else None,
                 mailer=Mailer(env), runner=LocalRunner(), now=lambda: datetime.now(timezone.utc))
