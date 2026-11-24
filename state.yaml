@@ -42,3 +42,5 @@ first_findings_2026_11_13:
   - ERT roster email: delivered 9/15, 1 bounced, 5 pending at ~09:00 (addresses in Neil's digest)
   - evac email: delivered 6/7, 1 pending
   - mobs 3/3, EOM Oct 3/3 delivered
+brevo_400_crash_2026_11_24: >
+  Watchdog crashed daily 2026-11-21..24 (HTTP 400 from Brevo /smtp/statistics/events) - EOM delivery check asked for every event from the 31st to today. Fix: monthly window = first-1 .. min(today, first+2); any Brevo lookup error -> that job AMBER with Brevo's reason + offset, never a crash. Tests 21 -> 23. Dry run 2026-11-24 16:49 completed: all green except ERT roster email 14/15 delivered, 1 bounced (address in tomorrow's digest).
