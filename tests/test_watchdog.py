@@ -1,6 +1,6 @@
 """The three failures the watchdog exists for - each must be DETECTED and RECOVERED (or, where
 recovery is impossible, reported red with what to do) - plus the checks around them."""
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -89,10 +89,15 @@ class FakeStatus:
 
 
 class FakeBrevo:
-    def __init__(self, events):
+    def __init__(self, events, fail=None):
         self.list = events
+        self.fail = fail
+        self.asked = []
 
     def events(self, start, end):
+        self.asked.append((start, end))
+        if self.fail:
+            raise self.fail
         return list(self.list)
 
 
@@ -306,6 +311,29 @@ def test_eom_not_due_before_7_on_the_1st_and_checked_after():
     res = W.watch(job("eom_report"), clients(later, gh, FakeBrevo(
         delivered("NMG CPO EOM HSEC statistics - October 2026", perth(2026, 11, 1, 7, 0), "a@x.au"))), CFG)
     assert res.status == W.GREEN and "2026-10 sent" in res.detail
+
+
+def test_eom_delivery_asks_brevo_about_the_1st_only_not_the_whole_month():
+    # 2026-11-21..24: asking Brevo for every event from the 31st to late in the month got
+    # HTTP 400 and crashed the whole watchdog. The EOM mail goes on the 1st - ask about then.
+    gh = FakeGitHub(None)
+    gh.files[("nmg-eom", "data/history.yaml")] = "months:\n  2026-10:\n    cells: {}\n"
+    clock = Clock(perth(2026, 11, 24, 7, 30))
+    gh.clock = clock
+    brevo = FakeBrevo(delivered("NMG CPO EOM HSEC statistics - October 2026", perth(2026, 11, 1, 7, 0), "a@x.au"))
+    res = W.watch(job("eom_report"), clients(clock, gh, brevo), CFG)
+    assert res.status == W.GREEN
+    assert brevo.asked == [(date(2026, 10, 31), date(2026, 11, 3))]
+
+
+def test_a_brevo_lookup_error_is_amber_for_that_job_not_a_crash():
+    import urllib.error
+    clock = Clock(perth(2026, 11, 24, 7, 30))
+    gh = FakeGitHub(clock)
+    gh.files[("nmg-eom", "data/history.yaml")] = "months:\n  2026-10:\n    cells: {}\n"
+    err = urllib.error.HTTPError("https://api.brevo.com/v3/smtp/statistics/events", 400, "Bad Request", {}, None)
+    res = W.watch(job("eom_report"), clients(clock, gh, FakeBrevo([], fail=err)), CFG)
+    assert res.status == W.AMBER and "Brevo lookup failed" in res.detail and "400" in res.detail
 
 
 def test_eom_month_missing_after_the_1st_is_retriggered():

@@ -172,8 +172,16 @@ class Brevo:
         while True:
             q = urllib.parse.urlencode({"startDate": start.isoformat(), "endDate": end.isoformat(),
                                         "limit": 2500, "offset": offset, "sort": "desc"})
-            got = _http("GET", f"{BREVO_API}/smtp/statistics/events?{q}",
-                        {"api-key": self.api_key, "Accept": "application/json"})[1] or {}
+            try:
+                got = _http("GET", f"{BREVO_API}/smtp/statistics/events?{q}",
+                            {"api-key": self.api_key, "Accept": "application/json"})[1] or {}
+            except urllib.error.HTTPError as err:          # keep Brevo's reason for the digest
+                try:
+                    err.brevo_body = err.read().decode("utf-8", "replace")[:200]
+                except Exception:
+                    err.brevo_body = ""
+                err.brevo_body = f"{err.brevo_body} (offset {offset})".strip()
+                raise
             page = got.get("events", [])
             out += page
             if len(page) < 2500:
@@ -330,7 +338,15 @@ def delivery(job, brevo, now, tz):
     today = now.astimezone(tz).date()
     first = today.replace(day=1) if job["check"] == "monthly_file" else today   # monthly mail goes on the 1st
     start = datetime(first.year, first.month, first.day, tzinfo=tz)
-    events = [e for e in brevo.events(first - timedelta(days=1), today)
+    # Ask about the send day (+2 for a late retry), never "1st to today": late in the month that
+    # window passed 2,500 events and Brevo answered HTTP 400, crashing the whole watchdog (2026-11-21..24).
+    try:
+        found = brevo.events(first - timedelta(days=1), min(today, first + timedelta(days=2)))
+    except (urllib.error.URLError, OSError, ValueError) as err:   # HTTPError is a URLError
+        detail = f"HTTP {err.code}" if isinstance(err, urllib.error.HTTPError) else type(err).__name__
+        body = getattr(err, "brevo_body", "")
+        return AMBER, f"delivery not confirmed - Brevo lookup failed ({detail}{': ' + body if body else ''})", []
+    events = [e for e in found
               if (e.get("subject") or "").startswith(job["email_subject"])
               and parse_time(e["date"]) >= start]
     if not events:
